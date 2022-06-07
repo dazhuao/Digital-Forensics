@@ -16,6 +16,7 @@ type list struct {
 }
 
 func main() {
+	var resultList []list
 	filename := ""
 	if len(os.Args) > 1 {
 		filename = strings.Join(os.Args[1:], "")
@@ -28,17 +29,27 @@ func main() {
 	defer file.Close()
 	var chunk []byte
 	buf := make([]byte, 512)
-	_, err = file.Read(buf)
-	if err != nil && err != io.EOF {
-		fmt.Println("read buf fail", err)
-		return
+
+	for {
+		n, err := file.Read(buf)
+		if err != nil && err != io.EOF {
+			fmt.Println("read buf fail", err)
+			return
+		}
+		if n == 0 {
+			break
+		}
+		chunk = append(chunk, buf[:n]...)
 	}
-	chunk = buf[446:462]
-	result := getResult(chunk)
-	fmt.Println(result)
+	resultList = getResultList(chunk, 0)
+	fmt.Println("Seq.# Starting CHS Starting LBA Size (MB) Type")
+	for n, list := range resultList {
+		fmt.Println(n+1, list.startCHS, list.startLBA, list.size, list.Type)
+	}
 
 }
 
+// input 16byte, out put the list
 func getResult(chunk []byte) list {
 	var c, h, s int
 	result := list{}
@@ -64,4 +75,33 @@ func getResult(chunk []byte) list {
 		result.Type = ""
 	}
 	return result
+}
+
+func isnull(chunk []byte) bool {
+	for _, s := range chunk {
+		if s != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func getResultList(chunk []byte, org int) []list {
+	var resultList []list
+	for n := 0; n <= 3; n++ {
+		MBR := chunk[org+446+n*16 : org+462+n*16]
+		if isnull(MBR) {
+			continue
+		}
+		result := getResult(MBR)
+		resultList = append(resultList, result)
+		if result.Type == "Extend" {
+			resultList2 := getResultList(chunk, int(result.startLBA*512))
+			for m := range resultList2 {
+				resultList2[m].startLBA = resultList2[m].startLBA + result.startLBA
+			}
+			resultList = append(resultList, resultList2...)
+		}
+	}
+	return resultList
 }
